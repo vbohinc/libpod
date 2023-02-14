@@ -10,6 +10,7 @@ import (
 
 	"github.com/containers/storage/pkg/ioutils"
 	"github.com/containers/storage/pkg/stringid"
+	"github.com/containers/storage/pkg/stringutils"
 	"github.com/containers/storage/pkg/truncindex"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
@@ -46,6 +47,11 @@ type Image struct {
 	// unique among images, and are often the text representation of tagged
 	// or canonical references.
 	Names []string `json:"names,omitempty"`
+
+	// NamesHistory is an optional set of Names the image had in the past. The
+	// contained names are free from any duplicates, whereas the newest entry
+	// is the first one.
+	NamesHistory []string `json:"names-history,omitempty"`
 
 	// TopLayer is the ID of the topmost layer of the image itself, if the
 	// image contains one or more layers.  Multiple images can refer to the
@@ -155,6 +161,7 @@ func copyImage(i *Image) *Image {
 		Digest:          i.Digest,
 		Digests:         copyDigestSlice(i.Digests),
 		Names:           copyStringSlice(i.Names),
+		NamesHistory:    copyStringSlice(i.NamesHistory),
 		TopLayer:        i.TopLayer,
 		MappedTopLayers: copyStringSlice(i.MappedTopLayers),
 		Metadata:        i.Metadata,
@@ -208,17 +215,17 @@ func bigDataNameIsManifest(name string) bool {
 
 // recomputeDigests takes a fixed digest and a name-to-digest map and builds a
 // list of the unique values that would identify the image.
-func (image *Image) recomputeDigests() error {
-	validDigests := make([]digest.Digest, 0, len(image.BigDataDigests)+1)
+func (i *Image) recomputeDigests() error {
+	validDigests := make([]digest.Digest, 0, len(i.BigDataDigests)+1)
 	digests := make(map[digest.Digest]struct{})
-	if image.Digest != "" {
-		if err := image.Digest.Validate(); err != nil {
-			return errors.Wrapf(err, "error validating image digest %q", string(image.Digest))
+	if i.Digest != "" {
+		if err := i.Digest.Validate(); err != nil {
+			return errors.Wrapf(err, "error validating image digest %q", string(i.Digest))
 		}
-		digests[image.Digest] = struct{}{}
-		validDigests = append(validDigests, image.Digest)
+		digests[i.Digest] = struct{}{}
+		validDigests = append(validDigests, i.Digest)
 	}
-	for name, digest := range image.BigDataDigests {
+	for name, digest := range i.BigDataDigests {
 		if !bigDataNameIsManifest(name) {
 			continue
 		}
@@ -231,10 +238,10 @@ func (image *Image) recomputeDigests() error {
 			validDigests = append(validDigests, digest)
 		}
 	}
-	if image.Digest == "" && len(validDigests) > 0 {
-		image.Digest = validDigests[0]
+	if i.Digest == "" && len(validDigests) > 0 {
+		i.Digest = validDigests[0]
 	}
-	image.Digests = validDigests
+	i.Digests = validDigests
 	return nil
 }
 
@@ -459,6 +466,19 @@ func (r *imageStore) addMappedTopLayer(id, layer string) error {
 	return errors.Wrapf(ErrImageUnknown, "error locating image with ID %q", id)
 }
 
+func (r *imageStore) removeMappedTopLayer(id, layer string) error {
+	if image, ok := r.lookup(id); ok {
+		initialLen := len(image.MappedTopLayers)
+		image.MappedTopLayers = stringutils.RemoveFromSlice(image.MappedTopLayers, layer)
+		// No layer was removed.  No need to save.
+		if initialLen == len(image.MappedTopLayers) {
+			return nil
+		}
+		return r.Save()
+	}
+	return errors.Wrapf(ErrImageUnknown, "error locating image with ID %q", id)
+}
+
 func (r *imageStore) Metadata(id string) (string, error) {
 	if image, ok := r.lookup(id); ok {
 		return image.Metadata, nil
@@ -481,6 +501,10 @@ func (r *imageStore) removeName(image *Image, name string) {
 	image.Names = stringSliceWithoutValue(image.Names, name)
 }
 
+func (i *Image) addNameToHistory(name string) {
+	i.NamesHistory = dedupeNames(append([]string{name}, i.NamesHistory...))
+}
+
 func (r *imageStore) SetNames(id string, names []string) error {
 	if !r.IsReadWrite() {
 		return errors.Wrapf(ErrStoreIsReadOnly, "not allowed to change image name assignments at %q", r.imagespath())
@@ -495,6 +519,7 @@ func (r *imageStore) SetNames(id string, names []string) error {
 				r.removeName(otherImage, name)
 			}
 			r.byname[name] = image
+			image.addNameToHistory(name)
 		}
 		image.Names = names
 		return r.Save()
