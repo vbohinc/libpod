@@ -517,7 +517,7 @@ golang.org/x/crypto/openpgp/errors
 golang.org/x/crypto/openpgp/packet
 golang.org/x/crypto/openpgp/s2k
 golang.org/x/crypto/ssh/terminal
-# golang.org/x/net v0.0.0-20190628185345-da137c7871d7
+# golang.org/x/net v0.0.0-20190812203447-cdfb69ac37fc
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/html
@@ -587,7 +587,7 @@ gopkg.in/tomb.v1
 gopkg.in/yaml.v2
 # k8s.io/api v0.0.0-20190813020757-36bff7324fb7
 k8s.io/api/core/v1
-# k8s.io/apimachinery v0.0.0-20190809020650-423f5d784010
+# k8s.io/apimachinery v0.15.7
 k8s.io/apimachinery/pkg/api/errors
 k8s.io/apimachinery/pkg/api/resource
 k8s.io/apimachinery/pkg/apis/meta/v1
